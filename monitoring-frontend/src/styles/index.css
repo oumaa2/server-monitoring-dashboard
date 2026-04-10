@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 10 11 14; /* #0a0b0e */
+    --foreground: 255 255 255;
+    --card: 22 24 29; /* #16181d */
+    --border: 55 65 81; /* #374151 */
+    --muted: 107 114 128; /* #6B7280 */
+    --muted-foreground: 156 163 175; /* #9CA3AF */
+  }
+
+  .dark {
+    --background: 10 11 14;
+    --foreground: 255 255 255;
+  }
+}
+
+body {
+  @apply bg-[#0a0b0e] text-white antialiased;
+  font-family: theme('fontFamily.sans');
+}
+
+/* Custom transitions */
+.transition-all {
+  transition-duration: 200ms;
+}

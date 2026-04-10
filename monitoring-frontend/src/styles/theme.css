@@ -1,0 +1,26 @@
+:root {
+    --bg-primary: #0a0b0e;
+    --bg-secondary: #0f1115;
+    --bg-card: #16181d;
+    --border-color: #374151;
+
+    --text-primary: #ffffff;
+    --text-secondary: #9CA3AF;
+    --text-muted: #6B7280;
+
+    --status-healthy: #10B981;
+    --status-warning: #F59E0B;
+    --status-critical: #EF4444;
+    --status-info: #3B82F6;
+
+    --chart-cpu: #3B82F6;
+    --chart-memory: #10B981;
+    --chart-network-in: #8B5CF6;
+    --chart-network-out: #F59E0B;
+    --chart-disk: #EF4444;
+}
+
+.dark {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}

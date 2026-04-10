@@ -1,0 +1,44 @@
+# Infrastructure
+node_modules/
+dist/
+target/
+.mvn/
+*.class
+*.jar
+*.war
+
+# Environment & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+application.properties.bak
+
+# Temp & Artifacts
+*.log
+prom_status.json
+prom_up.json
+prom_up2.json
+undertow_labels.json
+undertow_metrics.txt
+out.txt
+out2.txt
+out_stop.txt
+prom_db_status.json
+prom_db_val.txt
+prom_oradb_up.txt
+prom_oradb_up_val.txt
+update_result.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
