@@ -197,11 +197,15 @@ export const api = {
     getDeepDbMetrics: () => get<DeepDbMetrics>('/api/dashboard/databases/deep-metrics'),
 
     /** System logs endpoint */
-    getLogs: (level?: string, service?: string, server?: string) => {
+    getLogs: (level?: string, service?: string, server?: string, search?: string, page = 0, size = 50) => {
         const params = new URLSearchParams();
         if (level && level !== 'All Levels') params.append('level', level);
         if (service && service !== 'All Services') params.append('service', service);
         if (server && server !== 'All Servers') params.append('server', server);
+        if (search && search.trim()) params.append('search', search);
+        params.append('page', page.toString());
+        params.append('size', size.toString());
+        
         const query = params.toString();
         return get<LogResponse>(`/api/logs${query ? '?' + query : ''}`);
     },
@@ -259,6 +263,9 @@ export const api = {
     /** Remote Script Management */
     getScript: (id: number, action: 'start' | 'stop') => get<{ content: string; path: string; hostname: string }>(`/api/scripts/${id}/${action}`),
     saveScript: (id: number, action: 'start' | 'stop', content: string) => post<{ message: string }>(`/api/scripts/${id}/${action}`, { content }),
+
+    /** Deep Log Inspection */
+    inspectLog: (serverId: number, folderPath: string) => post<{ result: string }>('/api/logs/inspect', { serverId, folderPath }),
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

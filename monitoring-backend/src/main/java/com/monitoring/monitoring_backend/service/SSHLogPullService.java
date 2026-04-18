@@ -77,6 +77,8 @@ public class SSHLogPullService {
         });
     }
 
+    private final java.util.Set<String> offlineServers = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    
     private void startTailing(String host, String logPath, String configName, String serviceName) {
         executorService.submit(() -> {
             int retryDelay = 5000;
@@ -110,6 +112,7 @@ public class SSHLogPullService {
                     channel.connect(5000);
 
                     System.out.println(">>> [SSH] " + resolvedName + " ("+host+"): Connection established. Tailing " + logPath);
+                    offlineServers.remove(host); // Reconnected
                     retryDelay = 5000;
 
                     String line;
@@ -119,7 +122,10 @@ public class SSHLogPullService {
                     
                     System.out.println(">>> [SSH] " + resolvedName + " ("+host+"): Stream closed. Reconnecting...");
                 } catch (Exception e) {
-                    System.err.println(">>> [SSH Error] " + resolvedName + " (" + host + "): " + e.getMessage());
+                    if (!offlineServers.contains(host)) {
+                        System.err.println(">>> [SSH Error] " + resolvedName + " (" + host + "): " + e.getMessage());
+                        offlineServers.add(host);
+                    }
                     if (e.getMessage() != null && e.getMessage().contains("Auth fail")) break; 
                     try { Thread.sleep(retryDelay); } catch (InterruptedException ie) { break; }
                     retryDelay = Math.min(retryDelay * 2, 60000);

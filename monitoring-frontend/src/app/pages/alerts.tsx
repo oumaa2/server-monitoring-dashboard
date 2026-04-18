@@ -36,7 +36,7 @@ export default function Alerts() {
     const [serverFilter, setServerFilter] = useState('All Servers');
 
     const { data: response, loading, refetch } = useFetch<AlertResponse>(
-        () => api.getAlerts(), [], 30_000
+        () => api.getAlerts(), [], { refreshMs: 30_000 }
     );
 
     const alerts = response?.alerts ?? [];

@@ -8,7 +8,7 @@ export function AlertsPanel() {
     const { data: response, loading, error, refetch } = useFetch<AlertResponse>(
         () => api.getAlerts(),
         [],
-        30_000
+        { refreshMs: 30_000 }
     );
 
     const alerts = response?.alerts ?? [];

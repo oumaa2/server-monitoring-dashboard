@@ -39,7 +39,7 @@ public class SSHCommandService {
             session = jsch.getSession(finalUser, host, finalPort);
             session.setPassword(finalPass);
             session.setConfig("StrictHostKeyChecking", "no");
-            session.connect(10000);
+            session.connect(3000); // Reduced from 10s to 3s to prevent thread saturation
 
             channel = (ChannelExec) session.openChannel("exec");
             channel.setPty(true); 
@@ -60,7 +60,7 @@ public class SSHCommandService {
 
             // Safety timeout: wait max 15s
             long start = System.currentTimeMillis();
-            while (!channel.isClosed() && (System.currentTimeMillis() - start) < 15000) {
+            while (!channel.isClosed() && (System.currentTimeMillis() - start) < 8000) { // Reduced from 15s to 8s
                 Thread.sleep(100);
             }
             
@@ -100,7 +100,7 @@ public class SSHCommandService {
             session = jsch.getSession(finalUser, host, finalPort);
             session.setPassword(finalPass);
             session.setConfig("StrictHostKeyChecking", "no");
-            session.connect(5000);
+            session.connect(3000); // Reduced from 5s to 3s
 
             channel = (ChannelExec) session.openChannel("exec");
             channel.setPty(true);
@@ -120,7 +120,7 @@ public class SSHCommandService {
             stdin.flush();
             
             long start = System.currentTimeMillis();
-            while (!channel.isClosed() && (System.currentTimeMillis() - start) < 15000) {
+            while (!channel.isClosed() && (System.currentTimeMillis() - start) < 8000) { // Reduced from 15s to 8s
                 Thread.sleep(100);
             }
             
@@ -174,7 +174,7 @@ public class SSHCommandService {
             session = jsch.getSession(finalUser, host, finalPort);
             session.setPassword(finalPass);
             session.setConfig("StrictHostKeyChecking", "no");
-            session.connect(10000);
+            session.connect(3000); // Reduced from 10s to 3s
 
             channel = (ChannelExec) session.openChannel("exec");
             channel.setPty(true);
@@ -235,7 +235,7 @@ public class SSHCommandService {
             session = jsch.getSession(finalUser, host, finalPort);
             session.setPassword(finalPass);
             session.setConfig("StrictHostKeyChecking", "no");
-            session.connect(10000);
+            session.connect(3000); // Reduced from 10s to 3s
 
             channel = (ChannelExec) session.openChannel("exec");
             channel.setPty(true); 
@@ -266,6 +266,98 @@ public class SSHCommandService {
             }
 
             return combinedOutput.toString();
+        } finally {
+            if (channel != null) channel.disconnect();
+            if (session != null) session.disconnect();
+        }
+    }
+
+    /**
+     * Inspects a remote folder for the latest log file and the last error hit.
+     */
+    public String inspectRemoteFolder(String host, Integer port, String user, String pass, String folderPath) throws Exception {
+        String finalUser = resolveUsername(user);
+        String finalPass = resolvePassword(pass);
+        int finalPort = (port != null && port > 0) ? port : 22;
+
+        JSch jsch = new JSch();
+        Session session = null;
+        ChannelExec channel = null;
+        try {
+            session = jsch.getSession(finalUser, host, finalPort);
+            session.setPassword(finalPass);
+            session.setConfig("StrictHostKeyChecking", "no");
+            session.connect(3000); // Reduced from 10s to 3s
+
+            channel = (ChannelExec) session.openChannel("exec");
+            channel.setPty(true);
+
+            // Multi-line script for maximum stability and easy debugging
+            String bashCmd = String.format(
+                "FOLDER='%s'; " +
+                "LATEST_FILE=$(ls -t $FOLDER/*.log 2>/dev/null | head -n 1); " +
+                "if [ -z \"$LATEST_FILE\" ]; then LATEST_FILE=$(ls -t $FOLDER 2>/dev/null | head -n 1); fi; " +
+                "if [ -z \"$LATEST_FILE\" ] || [ ! -f \"$LATEST_FILE\" ]; then " +
+                "  echo 'ERROR: No log files found in folder: '$FOLDER; " +
+                "  echo 'AVAILABLE FILES IN PARENT:'; ls -F $(dirname $FOLDER) 2>/dev/null | head -n 10; " +
+                "  exit 0; " + // Exit 0 so we can show the list in the UI safely
+                "fi; " +
+                "echo '----START----'; " +
+                "LAST_HIT=$(grep -nIE 'Exception|ERROR|SEVERE' \"$LATEST_FILE\" | grep -vEi 'at |stacktrace' | tail -n 1); " +
+                "if [ -z \"$LAST_HIT\" ]; then " +
+                "  echo \"SUCCESS: No errors found in $LATEST_FILE\"; " +
+                "else " +
+                "  LINE_NUM=$(echo \"$LAST_HIT\" | cut -d: -f1); " +
+                "  MESSAGE=$(echo \"$LAST_HIT\" | cut -d: -f2-); " +
+                "  START_LINE=$((LINE_NUM - 2)); if [ $START_LINE -lt 1 ]; then START_LINE=1; fi; " +
+                "  END_LINE=$((LINE_NUM + 2)); " +
+                "  CONTEXT=$(sed -n \"${START_LINE},${END_LINE}p\" \"$LATEST_FILE\"); " +
+                "  echo \"FILE: $LATEST_FILE\"; echo \"LINE: $LINE_NUM\"; echo \"MSG: $MESSAGE\"; " +
+                "  echo 'CONTEXT_START'; echo \"$CONTEXT\"; echo 'CONTEXT_END'; " +
+                "fi; " +
+                "echo '----END----'",
+                folderPath
+            );
+
+            // Robust escaping for RHEL/Ubuntu mix
+            String escapedBashCmd = bashCmd.replace("'", "'\"'\"'");
+            String command = String.format("sudo -S /usr/bin/bash -c '%s'", escapedBashCmd);
+            channel.setCommand(command);
+
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            channel.setOutputStream(out);
+            channel.setErrStream(out);
+
+            java.io.OutputStream stdin = channel.getOutputStream();
+            channel.connect(5000);
+
+            stdin.write((finalPass + "\n").getBytes());
+            stdin.flush();
+
+            long start = System.currentTimeMillis();
+            while (!channel.isClosed() && (System.currentTimeMillis() - start) < 20000) {
+                Thread.sleep(100);
+            }
+
+            if (!channel.isClosed()) {
+                channel.disconnect();
+                throw new RuntimeException("Inspection timed out after 20s");
+            }
+
+            String result = out.toString();
+            // Extract safely
+            int startIndex = result.indexOf("----START----");
+            int endIndex = result.lastIndexOf("----END----");
+            
+            if (startIndex != -1 && endIndex != -1 && (startIndex + 13) <= endIndex) {
+                result = result.substring(startIndex + 13, endIndex);
+                if (result.startsWith("\n")) result = result.substring(1);
+                if (result.startsWith("\r\n")) result = result.substring(2);
+                if (result.endsWith("\n")) result = result.substring(0, result.length() - 1);
+                if (result.endsWith("\r")) result = result.substring(0, result.length() - 1);
+            }
+
+            return result.replace("\r", "").trim();
         } finally {
             if (channel != null) channel.disconnect();
             if (session != null) session.disconnect();

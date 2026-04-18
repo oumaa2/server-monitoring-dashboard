@@ -6,11 +6,11 @@ import type { DatabaseItem, DeepDbMetrics } from '../../services/api';
 
 export default function Databases() {
     const { data: databases, loading } = useFetch<DatabaseItem[]>(
-        () => api.getDatabases(), [], 30_000
+        () => api.getDatabases(), [], { refreshMs: 30_000 }
     );
 
     const { data: deepMetrics } = useFetch<DeepDbMetrics>(
-        () => api.getDeepDbMetrics(), [], 30_000
+        () => api.getDeepDbMetrics(), [], { refreshMs: 30_000 }
     );
 
 

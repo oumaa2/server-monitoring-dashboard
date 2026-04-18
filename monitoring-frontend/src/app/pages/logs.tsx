@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
-import { Search, Download, ChevronDown, ChevronRight, RefreshCw, Play, Pause, Copy, FileText, AlertCircle, Info, Database, Layers } from 'lucide-react';
+import { Search, Download, ChevronDown, ChevronRight, RefreshCw, Copy, FileText, AlertCircle, Info, Database, Layers } from 'lucide-react';
 import { useSearchParams } from 'react-router';
-import { api, type LogItem, type LogResponse } from '../../services/api';
+import { api, type LogItem, type LogResponse, type ApplicationItem } from '../../services/api';
 import { useFetch } from '../../hooks/useFetch';
 import { format } from 'date-fns';
+import InspectLogModal from '../components/inspect-log-modal';
+import LogServerCards from '../components/log-server-cards';
 
 const logLevelStyles: Record<string, string> = {
     ERROR: 'bg-red-500/20 text-red-400 border-red-500/20',
@@ -18,41 +20,41 @@ export default function Logs() {
     const [serviceFilter, setServiceFilter] = useState('All Services');
     const [serverFilter, setServerFilter] = useState(searchParams.get('server') || 'All Servers');
     const [search, setSearch] = useState('');
+    const [page, setPage] = useState(0);
+    const pageSize = 50;
     const [expanded, setExpanded] = useState<number | null>(null);
+    const [inspectServer, setInspectServer] = useState<{ id: number, name: string } | null>(null);
 
     const { data: response, loading, refetch } = useFetch<LogResponse>(
-        () => api.getLogs(levelFilter, serviceFilter, serverFilter), 
-        [levelFilter, serviceFilter, serverFilter], 
-        10_000
+        () => api.getLogs(levelFilter, serviceFilter, serverFilter, search, page, pageSize), 
+        [levelFilter, serviceFilter, serverFilter, search, page], 
+        { refreshMs: 15_000 }
     );
 
-    const rawLogs = response?.logs ?? [];
-
+    const { data: apps } = useFetch<ApplicationItem[]>(api.getApplications, [], { refreshMs: 60_000 });
     const services = useMemo(() => 
-        ['All Services', ...Array.from(new Set(rawLogs.map(l => l.service)))], 
-        [rawLogs]);
+        ['All Services', ...Array.from(new Set(apps?.map(a => a.name) || []))], 
+        [apps]);
     
-    const { data: serverSummary } = useFetch<any[]>(() => api.getSummary(), [], 60_000);
+    const { data: serverSummary } = useFetch<any[]>(() => api.getSummary(), [], { refreshMs: 60_000 });
     const servers = useMemo(() => 
         ['All Servers', ...Array.from(new Set(serverSummary?.map(s => s.name) || []))], 
     [serverSummary]);
+    const { data: rawServers } = useFetch<any[]>(api.getServers, [], { refreshMs: 60_000 });
     const levels = ['All Levels', 'ERROR', 'WARN', 'INFO', 'DEBUG'];
 
-    // Client-side search on top of server-side metrics
-    const filtered = useMemo(() =>
-        rawLogs.filter(l =>
-            search === '' || 
-            l.message.toLowerCase().includes(search.toLowerCase()) || 
-            (l.details?.toLowerCase().includes(search.toLowerCase()))
-        ), [rawLogs, search]);
+    // Logs are now filtered server-side
+    const logs = response?.logs ?? [];
+    const totalItems = response?.total ?? 0;
+    const totalPages = Math.ceil(totalItems / pageSize);
 
     const stats = useMemo(() => ({
-        total: rawLogs.length,
-        errors: rawLogs.filter(l => l.level === 'ERROR').length,
-        warnings: rawLogs.filter(l => l.level === 'WARN').length,
-        info: rawLogs.filter(l => l.level === 'INFO').length,
+        total: totalItems,
+        errors: response?.logs?.filter(l => l.level === 'ERROR').length || 0, // This is local to the page, but good for quick view
+        warnings: response?.logs?.filter(l => l.level === 'WARN').length || 0,
+        info: response?.logs?.filter(l => l.level === 'INFO').length || 0,
         lastUpdate: format(new Date(), 'HH:mm:ss')
-    }), [rawLogs]);
+    }), [response, totalItems]);
 
     const copyToClipboard = (log: LogItem) => {
         const text = `[${log.level}] ${log.timestamp} | ${log.service} | ${log.serverName}\n${log.message}\n${log.details || ''}`;
@@ -64,6 +66,13 @@ export default function Logs() {
         setServiceFilter('All Services');
         setServerFilter('All Servers');
         setSearch('');
+    };
+
+    const handleServerClick = (serverName: string) => {
+        const s = rawServers?.find(srv => srv.hostname === serverName);
+        if (s) {
+            setInspectServer({ id: s.id, name: s.hostname });
+        }
     };
 
     return (
@@ -82,6 +91,19 @@ export default function Logs() {
                         <Download className="w-4 h-4" /> Export
                     </button>
                 </div>
+            </div>
+
+            {/* Active Server Selection Cards */}
+            <div className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                    <h2 className="text-white text-[10px] font-black uppercase tracking-[0.2em] opacity-40">Direct Physical Inspection</h2>
+                    <span className="text-gray-600 text-[10px] font-medium italic">Click a server card to analyze live log files via SSH</span>
+                </div>
+                <LogServerCards 
+                    servers={serverSummary || []} 
+                    loading={!serverSummary && loading}
+                    onInspect={(id, name) => setInspectServer({ id, name })}
+                />
             </div>
 
             {/* Summary Stats */}
@@ -130,7 +152,7 @@ export default function Logs() {
                 </div>
                 <div className="relative flex-1 min-w-[200px]">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                    <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                    <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }}
                         placeholder="Search message or details..."
                         className="w-full bg-gray-900/50 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-sm text-white outline-none focus:border-blue-500/50" />
                 </div>
@@ -139,12 +161,12 @@ export default function Logs() {
             {/* Log List */}
             <div className="bg-[#0d0e12] border border-gray-800/50 rounded-2xl overflow-hidden shadow-2xl">
                 <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
-                    {loading && rawLogs.length === 0 ? (
+                    {loading && logs.length === 0 ? (
                         <div className="py-20 flex flex-col items-center justify-center opacity-50">
                             <RefreshCw className="w-10 h-10 animate-spin mb-4 text-blue-500" />
                             <p className="text-gray-400">Fetching latest logs...</p>
                         </div>
-                    ) : filtered.length === 0 ? (
+                    ) : logs.length === 0 ? (
                         <div className="py-24 text-center">
                             <FileText className="w-16 h-16 mx-auto mb-4 text-gray-700" />
                             <h3 className="text-white text-lg font-medium mb-1">No Logs Found</h3>
@@ -153,7 +175,7 @@ export default function Logs() {
                         </div>
                     ) : (
                         <div className="divide-y divide-gray-800/40">
-                            {filtered.map(log => (
+                            {logs.map(log => (
                                 <div key={log.id} className="hover:bg-gray-800/10 transition-colors group">
                                     <div className="flex items-start gap-4 p-4">
                                         <div className="w-32 shrink-0 pt-0.5">
@@ -170,7 +192,12 @@ export default function Logs() {
                                             </span>
                                         </div>
                                         <div className="w-32 shrink-0 hidden md:block">
-                                            <span className="text-[10px] text-gray-500">{log.serverName}</span>
+                                            <button 
+                                                onClick={() => handleServerClick(log.serverName)}
+                                                className="text-[10px] text-blue-400 hover:text-blue-300 hover:underline transition-colors decoration-blue-400/30"
+                                            >
+                                                {log.serverName}
+                                            </button>
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm text-gray-300 font-mono break-words">{log.message}</p>
@@ -203,6 +230,56 @@ export default function Logs() {
                     )}
                 </div>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between bg-[#16181d] border border-gray-800 p-4 rounded-2xl shadow-xl">
+                    <div className="text-sm text-gray-500">
+                        Showing <span className="text-white font-medium">{page * pageSize + 1}</span> to <span className="text-white font-medium">{Math.min((page + 1) * pageSize, totalItems)}</span> of <span className="text-white font-medium">{totalItems}</span> logs
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button 
+                            disabled={page === 0 || loading}
+                            onClick={() => setPage(p => p - 1)}
+                            className="px-4 py-2 bg-gray-900 border border-gray-800 rounded-lg text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Previous
+                        </button>
+                        <div className="flex items-center gap-1">
+                            {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                                // Simple windowing: if totalPages > 5, show first 5 for now
+                                // In a real app we'd do better windowing
+                                return (
+                                    <button 
+                                        key={i}
+                                        onClick={() => setPage(i)}
+                                        className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${page === i ? 'bg-blue-600 text-white' : 'bg-gray-900 text-gray-500 hover:text-white hover:bg-gray-800'}`}
+                                    >
+                                        {i + 1}
+                                    </button>
+                                );
+                            })}
+                            {totalPages > 5 && <span className="text-gray-600 px-1">...</span>}
+                        </div>
+                        <button 
+                            disabled={page >= totalPages - 1 || loading}
+                            onClick={() => setPage(p => p + 1)}
+                            className="px-4 py-2 bg-gray-900 border border-gray-800 rounded-lg text-sm text-gray-300 hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            Next
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {inspectServer && (
+                <InspectLogModal 
+                    isOpen={!!inspectServer}
+                    onClose={() => setInspectServer(null)}
+                    serverName={inspectServer.name}
+                    serverId={inspectServer.id}
+                />
+            )}
         </div>
     );
 }

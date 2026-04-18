@@ -29,7 +29,7 @@ const StackIcon = ({ name }: { name: string }) => {
 };
 
 export default function Applications() {
-    const { data: apps, loading, error } = useFetch<ApplicationItem[]>(api.getApplications, [], 30000);
+    const { data: apps, loading, error } = useFetch<ApplicationItem[]>(api.getApplications, [], { refreshMs: 30000 });
 
     if (loading && !apps) {
         return <div className="p-8 text-gray-400">Loading applications...</div>;
